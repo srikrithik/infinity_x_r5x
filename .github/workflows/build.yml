@@ -1,4 +1,4 @@
-name: Build Infinity X 3.10 for Realme 5 (Android 16)
+name: Build Infinity X 3.10 for Realme 5 r5x
 
 on:
   workflow_dispatch:
@@ -7,182 +7,85 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Maximize Build Space
+      - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/.ghcup
-          sudo apt-get autoremove -y
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo apt-get clean
           df -h
 
-      - name: Setup Build Environment
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex \
-            g++-multilib gcc-multilib git gnupg gperf imagemagick \
-            lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev \
-            liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils \
-            lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm \
-            zip zlib1g-dev openjdk-17-jdk python3 python-is-python3
+          sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig openjdk-17-jdk python3 rsync
           mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+          chmod +x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Configure Git
+      - name: Configure git
         run: |
           git config --global user.name "srikrithik"
           git config --global user.email "your_email@gmail.com"
-          git config --global color.ui false
 
-      - name: Initialize Project Infinity X 3.10 Source
+      - name: Init Infinity X source
         run: |
-          mkdir workspace && cd workspace
-          repo init -u https://github.com/ProjectInfinity-X/manifest.git -b 16 --depth=1 --git-lfs
+          mkdir -p workspace
+          cd workspace
+          repo init -u https://github.com/ProjectInfinity-X/manifest.git -b 16 --depth=1
 
-      - name: Sync Source Code
+      - name: Sync source
         run: |
           cd workspace
-          for i in 1 2 3 4 5; do
-            echo "=== Sync attempt $i ==="
-            if repo sync -c -j4 --force-sync --no-clone-bundle --no-tags --optimized-fetch; then
-              echo "✅ Sync successful!"
-              break
-            fi
-            echo "⚠️ Retrying in 30 seconds..."
-            sleep 30
-          done
-          repo sync -c -j1 --force-sync --no-clone-bundle --no-tags
+          repo sync -c -j2 --force-sync --no-clone-bundle --no-tags || repo sync -c -j1 --force-sync --no-clone-bundle --no-tags
 
-      - name: Clone Realme 5 (r5x) Device Trees
+      - name: Clone Realme 5 trees
         run: |
           cd workspace
-          
-          # Device Tree for Realme 5 (r5x)
-          git clone https://github.com/Amritorock/android_device_realme_r5x.git -b lineage-21 device/realme/r5x || \
-          git clone https://github.com/jeenabg/android_device_realme_r5x.git -b lineage-21 device/realme/r5x || \
-          git clone https://github.com/RisingTechOSS-devices/android_device_realme_r5x.git device/realme/r5x
-          
-          # Common Trinket Tree (shared between Realme 5/5i/5s)
-          git clone https://github.com/Amritorock/android_device_realme_trinket-common.git -b lineage-21 device/realme/trinket-common || \
-          git clone https://github.com/jeenabg/android_device_realme_trinket-common.git -b lineage-21 device/realme/trinket-common
-          
-          # Vendor Blobs (proprietary drivers)
-          git clone https://github.com/Amritorock/android_vendor_realme_r5x.git -b lineage-21 vendor/realme/r5x || \
-          git clone https://github.com/TheMuppets/proprietary_vendor_realme_r5x.git -b lineage-21 vendor/realme/r5x
-          
-          git clone https://github.com/Amritorock/android_vendor_realme_trinket-common.git -b lineage-21 vendor/realme/trinket-common || \
-          git clone https://github.com/TheMuppets/proprietary_vendor_realme_trinket-common.git -b lineage-21 vendor/realme/trinket-common
-          
-          # Kernel Source (Trinket platform = SD665)
-          git clone https://github.com/Amritorock/android_kernel_realme_sm6125.git -b lineage-21 kernel/realme/sm6125 || \
-          git clone https://github.com/jeenabg/android_kernel_realme_trinket.git -b lineage-21 kernel/realme/sm6125
+          git clone https://github.com/Amritorock/android_device_realme_r5x.git -b lineage-21 device/realme/r5x || true
+          git clone https://github.com/Amritorock/android_device_realme_trinket-common.git -b lineage-21 device/realme/trinket-common || true
+          git clone https://github.com/Amritorock/android_vendor_realme_r5x.git -b lineage-21 vendor/realme/r5x || true
+          git clone https://github.com/Amritorock/android_vendor_realme_trinket-common.git -b lineage-21 vendor/realme/trinket-common || true
+          git clone https://github.com/Amritorock/android_kernel_realme_sm6125.git -b lineage-21 kernel/realme/sm6125 || true
 
-      - name: Add Custom Blur Properties
+      - name: Add blur props
         run: |
           cd workspace
-          
-          # Add blur properties to device.mk
-          cat >> device/realme/r5x/device.mk << 'EOF'
-
-# ============================================
-# CUSTOM BLUR SUPPORT FOR REALME 5 (Adreno 610)
-# ============================================
-PRODUCT_PRODUCT_PROPERTIES += \
-    ro.surface_flinger.supports_background_blur=1 \
-    ro.sf.blurs_are_expensive=0 \
-    persist.sys.sf.disable_blurs=0 \
-    ro.launcher.blur.appLaunch=1 \
-    debug.sf.enable_gl_backpressure=1
-
-# Force GPU rendering for smooth blur
-PRODUCT_VENDOR_PROPERTIES += \
-    debug.hwui.renderer=skiagl \
-    debug.renderengine.backend=skiaglthreaded
-EOF
-          
-          # Add blur to BoardConfig if it exists
-          if [ -f device/realme/r5x/BoardConfig.mk ]; then
-            cat >> device/realme/r5x/BoardConfig.mk << 'EOF'
-
-# Enable Blur Support
-TARGET_USES_BLUR := true
-SF_DISABLE_BACKPRESSURE := 1
-EOF
+          if [ -f device/realme/r5x/device.mk ]; then
+            echo "" >> device/realme/r5x/device.mk
+            echo "# Blur Properties" >> device/realme/r5x/device.mk
+            echo "PRODUCT_PRODUCT_PROPERTIES += \\" >> device/realme/r5x/device.mk
+            echo "    ro.surface_flinger.supports_background_blur=1 \\" >> device/realme/r5x/device.mk
+            echo "    ro.sf.blurs_are_expensive=0 \\" >> device/realme/r5x/device.mk
+            echo "    persist.sys.sf.disable_blurs=0" >> device/realme/r5x/device.mk
           fi
-          
-          echo "✅ Blur properties added!"
 
-      - name: Verify Device Tree
+      - name: Verify trees
         run: |
           cd workspace
-          echo "=== Device Tree Contents ==="
-          ls -la device/realme/r5x/ || echo "❌ Device tree NOT found!"
-          echo ""
-          echo "=== Vendor Tree Contents ==="
-          ls -la vendor/realme/r5x/ || echo "❌ Vendor tree NOT found!"
-          echo ""
-          echo "=== Kernel Source ==="
-          ls -la kernel/realme/ || echo "❌ Kernel NOT found!"
-          echo ""
-          echo "=== Available Lunch Targets ==="
-          source build/envsetup.sh
-          lunch 2>&1 | head -50 || true
+          ls -la device/realme/r5x || echo "No device tree"
+          ls -la vendor/realme/r5x || echo "No vendor tree"
+          ls -la kernel/realme || echo "No kernel"
 
-      - name: Build Project Infinity X 3.10 for r5x
+      - name: Build ROM
         run: |
           cd workspace
           source build/envsetup.sh
-          
-          # Try various lunch target combinations
-          lunch infinity_r5x-bp2a-userdebug || \
-          lunch infinity_r5x-ap4a-userdebug || \
-          lunch infinity_r5x-userdebug || \
-          lunch lineage_r5x-userdebug
-          
-          # Enable ccache
-          export USE_CCACHE=1
-          export CCACHE_EXEC=/usr/bin/ccache
-          ccache -M 50G
-          
-          # Build the ROM
-          mka infinity -j$(nproc) || m infinity -j$(nproc) || mka bacon -j$(nproc)
+          lunch infinity_r5x-userdebug || lunch infinity_r5x-ap4a-userdebug || lunch lineage_r5x-userdebug
+          mka bacon -j2 || mka infinity -j2 || m bacon -j2
 
-      - name: Find Built ROM
+      - name: Upload output
         if: always()
-        run: |
-          cd workspace
-          echo "=== Searching for built ROM ==="
-          find out/target/product/r5x/ -name "*.zip" 2>/dev/null
-          find out/target/product/r5x/ -name "*.img" -size +50M 2>/dev/null
-          ls -lh out/target/product/r5x/ 2>/dev/null | head -20
-
-      - name: Upload ROM to Artifacts
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: InfinityX-3.10-Realme5-r5x
+          name: r5x-build-output
           path: |
             workspace/out/target/product/r5x/*.zip
             workspace/out/target/product/r5x/boot.img
             workspace/out/target/product/r5x/recovery.img
-          if-no-files-found: warn
-
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
             workspace/out/error.log
-            workspace/out/verbose.log.gz
           if-no-files-found: ignore

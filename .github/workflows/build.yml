@@ -1,4 +1,4 @@
-name: Build Infinity X 3.10 for Realme 5 r5x
+name: Build Infinity X 3.10 GSI (Android 16)
 
 on:
   workflow_dispatch:
@@ -12,20 +12,26 @@ jobs:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
+          root-reserve-mb: 1024
           temp-reserve-mb: 100
-          swap-size-mb: 8192
+          swap-size-mb: 4096
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
+          build-mount-path: '/workspace'
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check disk space
-        run: df -h
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/boost /usr/share/swift /usr/local/.ghcup
+          sudo apt-get autoremove -y && sudo apt-get clean
+          docker system prune -af || true
+          df -h
 
       - name: Install dependencies
         run: |
@@ -40,64 +46,71 @@ jobs:
         run: |
           git config --global user.name "srikrithik"
           git config --global user.email "your_email@gmail.com"
+          sudo chown -R $USER:$USER /workspace
 
       - name: Init Infinity X source
         run: |
-          mkdir -p workspace
-          cd workspace
-          repo init -u https://github.com/ProjectInfinity-X/manifest.git -b 16 --depth=1
+          cd /workspace
+          mkdir -p rom && cd rom
+          repo init -u https://github.com/ProjectInfinity-X/manifest.git -b 16 --depth=1 --no-clone-bundle
 
-      - name: Sync source
+      - name: Sync source (GSI minimal)
         run: |
-          cd workspace
-          repo sync -c -j2 --force-sync --no-clone-bundle --no-tags || repo sync -c -j1 --force-sync --no-clone-bundle --no-tags
+          cd /workspace/rom
+          repo sync -c -j2 --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune || \
+          repo sync -c -j1 --force-sync --no-clone-bundle --no-tags --optimized-fetch
+          df -h
 
-      - name: Check disk after sync
-        run: df -h
-
-      - name: Clone Realme 5 trees
+      - name: Add blur to GSI
         run: |
-          cd workspace
-          git clone https://github.com/Amritorock/android_device_realme_r5x.git -b lineage-21 device/realme/r5x || true
-          git clone https://github.com/Amritorock/android_device_realme_trinket-common.git -b lineage-21 device/realme/trinket-common || true
-          git clone https://github.com/Amritorock/android_vendor_realme_r5x.git -b lineage-21 vendor/realme/r5x || true
-          git clone https://github.com/Amritorock/android_vendor_realme_trinket-common.git -b lineage-21 vendor/realme/trinket-common || true
-          git clone https://github.com/Amritorock/android_kernel_realme_sm6125.git -b lineage-21 kernel/realme/sm6125 || true
-
-      - name: Add blur props
-        run: |
-          cd workspace
-          if [ -f device/realme/r5x/device.mk ]; then
-            echo "" >> device/realme/r5x/device.mk
-            echo "# Blur Properties" >> device/realme/r5x/device.mk
-            echo "PRODUCT_PRODUCT_PROPERTIES += \\" >> device/realme/r5x/device.mk
-            echo "    ro.surface_flinger.supports_background_blur=1 \\" >> device/realme/r5x/device.mk
-            echo "    ro.sf.blurs_are_expensive=0 \\" >> device/realme/r5x/device.mk
-            echo "    persist.sys.sf.disable_blurs=0" >> device/realme/r5x/device.mk
+          cd /workspace/rom
+          # Find generic system properties file
+          GSI_PROP="device/generic/common/gsi_system.prop"
+          if [ ! -f "$GSI_PROP" ]; then
+            mkdir -p device/generic/common
+            touch "$GSI_PROP"
           fi
+          echo "" >> "$GSI_PROP"
+          echo "# Blur Properties for GSI" >> "$GSI_PROP"
+          echo "ro.surface_flinger.supports_background_blur=1" >> "$GSI_PROP"
+          echo "ro.sf.blurs_are_expensive=0" >> "$GSI_PROP"
+          echo "persist.sys.sf.disable_blurs=0" >> "$GSI_PROP"
 
-      - name: Verify trees
+      - name: List GSI targets
         run: |
-          cd workspace
-          ls -la device/realme/r5x || echo "No device tree"
-          ls -la vendor/realme/r5x || echo "No vendor tree"
-          ls -la kernel/realme || echo "No kernel"
-
-      - name: Build ROM
-        run: |
-          cd workspace
+          cd /workspace/rom
           source build/envsetup.sh
-          lunch infinity_r5x-userdebug || lunch infinity_r5x-ap4a-userdebug || lunch lineage_r5x-userdebug
-          mka bacon -j2 || mka infinity -j2 || m bacon -j2
+          echo "=== Available lunch targets ==="
+          lunch 2>&1 | grep -i "gsi\|generic\|arm64" || true
 
-      - name: Upload output
+      - name: Build GSI
+        run: |
+          cd /workspace/rom
+          source build/envsetup.sh
+          
+          # Try GSI lunch targets (whichever exists)
+          lunch infinity_arm64_bgN-bp2a-userdebug 2>/dev/null || \
+          lunch infinity_arm64_b-bp2a-userdebug 2>/dev/null || \
+          lunch infinity_arm64-bp2a-userdebug 2>/dev/null || \
+          lunch infinity_gsi_arm64-userdebug 2>/dev/null || \
+          lunch aosp_arm64-bp2a-userdebug 2>/dev/null
+          
+          # Build only system image (GSI)
+          mka systemimage -j2
+
+      - name: Find GSI
         if: always()
+        run: |
+          cd /workspace/rom
+          echo "=== Looking for GSI ==="
+          find out/ -name "system.img" -size +500M 2>/dev/null
+          ls -lh out/target/product/*/system.img 2>/dev/null
+
+      - name: Upload GSI
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: r5x-build-output
+          name: InfinityX-GSI-Android16
           path: |
-            workspace/out/target/product/r5x/*.zip
-            workspace/out/target/product/r5x/boot.img
-            workspace/out/target/product/r5x/recovery.img
-            workspace/out/error.log
-          if-no-files-found: ignore
+            /workspace/rom/out/target/product/*/system.img
+          if-no-files-found: warn
